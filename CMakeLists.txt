@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 20)
 
 add_executable(FastCDC src/main.cpp
         src/GearHash/GearHash.cpp
-        src/GearHash/GearHash.h)
+        src/GearHash/GearHash.h
+        src/BreakingApart/BreakingApart.cpp)
 
 target_include_directories(FastCDC PRIVATE src)
