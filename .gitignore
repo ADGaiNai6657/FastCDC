@@ -6,6 +6,9 @@ out/
 # CLion / IDE
 .idea/
 
+# macOS
+.DS_Store
+
 # Compiled objects / binaries
 *.o
 *.obj
