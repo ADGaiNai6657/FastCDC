@@ -32,7 +32,9 @@
 | 归一化分块 NC（4.4，level 2） | `maskFor()`：NormalSize 前 `MaskS`、后用 `MaskL` | 已完成 |
 | 非 NC 模式（用 MaskA） | `is_NC=false` 时用 `MaskM` | 已完成 |
 | MaxSize 强制切分 | `searchEnd = min(last+MaxSize, n)` | 已完成 |
-| 文件读取 + min/avg/max 输出 | `src/main.cpp` | 已完成（单文件） |
+| 内容指纹（去重） | `src/ChunkStore/ChunkStore.cpp`（复用 `updateGearHash`） | 已完成 |
+| 一个 chunk 只存一次 | `chunkStore()`：指纹分桶 + 逐字节确认 | 已完成 |
+| 数据集驱动 + DER/avg/吞吐 | `src/main.cpp` | 已完成 |
 
 当前默认参数：`MinSize=4048(≈4KB)`、`NormalSize=8096(8KB)`、
 `MaxSize=64768(≈64KB)`，NC 掩码 15/11 位（即 NC level 2）。
@@ -41,10 +43,24 @@
 ## 3. 已完成
 
 - FastCDC 核心分块算法：Gear 哈希、优化哈希判定、切点跳过、NC、MaxSize。
-- 单文件 CLI：`FastCDC <file> [--nc]`，输出块数、min/avg/max 块长。
-- 可编译、无警告（`-Wall -Wextra`），CMake 构建通过。
+- 全局去重存储 `ChunkStore`：一个 chunk 只存一份（`gChunkPool`），
+  指纹复用 `updateGearHash`（64 位）+ 逐字节确认。
+- 数据集驱动：遍历文件/目录、逐文件分块与发射、跨文件全局去重。
+- 评价指标：`dedupRatio`(DER)、数据集级 `avgChunk`、`minChunk`/`maxChunk`、
+  吞吐量（MB/s）。
+- 可编译、无警告（`-Wall -Wextra`），CMake 构建通过，无第三方依赖。
 - 本地可用数据：`Dataset/DataSet_1`（5 个 emacs tar.gz，TAR 类）、
   `Dataset/DataSet_2`（4 个 emacs 版本源码，LNX 类，含版本差异可用于去重）。
+
+初步结果（本机，默认参数）：
+
+| 数据集 | 模式 | totalChunks | uniqueChunks | dedupRatio | avgChunk |
+| --- | --- | ---: | ---: | ---: | ---: |
+| DataSet_2 | 非 NC | 63698 | 42611 | 1.4657 | 9993 |
+| DataSet_2 | NC | 75595 | 50085 | 1.5013 | 8421 |
+| DataSet_1 | 非 NC | 14687 | 14684 | 1.0001 | 12240 |
+
+（DataSet_1 为 gzip 压缩包，字节级重复少，DER≈1；去重实验用 DataSet_2。）
 
 ## 4. 待完成
 
@@ -56,12 +72,12 @@
 - [ ] NC 开关 + level 1/2/3（掩码位对 (14,12)/(15,11)/(16,10)），复现 Figure 12。
 - [ ] 兼容论文 Algorithm 1 的默认（MinSize=2KB）。
 
-### 4.2 评价指标（优先级高）
+### 4.2 评价指标（基础已具备）
 
-- [ ] 分块吞吐量测速（MB/s，多次运行取平均），复现 Figure 10/13。
-- [ ] 数据集级平均块长 = 总字节 / 总块数（跨文件聚合）。
-- [ ] 去重率 = 重复数据量 / 总数据量：需对每个块做 SHA1 指纹并全局去重统计。
-      （当前完全缺失，是 Table 3/4 的关键指标。）
+- [x] 分块吞吐量测速（MB/s，单次运行）。
+- [x] 数据集级平均块长 = 总字节 / 总块数（跨文件聚合）。
+- [x] 去重率 DER = totalBytes / uniqueBytes：由 `ChunkStore` 全局去重统计给出。
+- [ ] 多次运行取平均，降低测速噪声，复现 Figure 10/13。
 
 ### 4.3 基线算法（优先级高，Table 3 / Fig 10 / 13 需要）
 
@@ -72,7 +88,7 @@
 
 ### 4.4 数据集与批处理框架
 
-- [ ] 遍历数据集目录、逐个文件分块并聚合统计（当前仅单文件）。
+- [x] 遍历数据集目录、逐个文件分块并聚合统计（`main.cpp` 驱动）。
 - [ ] 数据集缺口：本地只有 TAR/LNX 类；WEB/VMA/VMB/RDB/SYN 缺失，
       完整 Table 3-6 无法 1:1 复现，只能做同规模缩比验证。
 - [ ] 输出统一的表格/CSV，便于与论文 Table 3-6 对照。
@@ -83,7 +99,9 @@
 
 ### 4.6 其他
 
-- [ ] `updateGearHash` 目前未被使用，可保留作通用接口或删除。
+- [x] 内容指纹复用 `updateGearHash`（无需引入 SHA-1/OpenSSL）。
+- [ ] 论文去重指纹为 SHA-1，本项目用 64 位 Gear 指纹 + 逐字节确认；
+      去重结果等价，但与论文实现细节不同，需在报告中说明。
 - [ ] 论文未公开作者使用的 Gear 随机表；当前为自生成随机表，
       统计结果可能与论文有细微差异，需在报告中说明。
 
@@ -101,9 +119,9 @@
 - [ ] 由期望块长自动生成掩码，并补齐 NC level 1/3 的掩码
 
 ### 阶段 2：指标
-- [ ] 吞吐量测速
-- [ ] 数据集级平均块长聚合
-- [ ] SHA1 指纹 + 去重率计算
+- [x] 吞吐量测速
+- [x] 数据集级平均块长聚合
+- [x] 指纹（GearHash）+ 去重率计算
 
 ### 阶段 3：基线
 - [ ] 实现 FSC(10KB)
@@ -126,3 +144,6 @@
 - 论文默认 `MaxSize = 8×期望块长`、`MinSize = 1/4×期望块长`（LBFS 配置），
   但 Algorithm 1 与 5.4/5.5 的 NC 实验使用 `MinSize=2K/4K/8K`，需区分。
 - 去重率对块边界极敏感；复现前应先验证边界确定性与跨块一致性。
+- 去重指纹使用 64 位 GearHash（非密码学）+ 逐字节确认，等价于精确去重；
+  论文用 SHA-1，仅实现细节不同。
+- `ChunkStore` 为每个唯一块在内存保留一份内容副本，大数据集注意内存占用。
