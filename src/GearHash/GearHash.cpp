@@ -4,21 +4,11 @@
 
 #include "GearHash.h"
 
-//*data指针指向窗口内第一个数据；length代表视窗长度；hash就是hash，没啥好说的；init代表是否初始化过
-auto getHashValue(const std::uint8_t *data, size_t length, uint64_t &hash, bool &init) -> uint64_t {
-
-    if (!init) {    //没初始化？说明这是一段新的数据，需要从头开始填充！
-
-        for (auto i = 0; i < length; i++) {
-            hash = (hash << 1) + GEAR_TABLE[data[i]];
-        }
-
-        init = true;
-        return hash;
-    } else {            //初始化过了？说明之前已经填充过了，只需要加入新的数据就行
-
-        hash = (hash << 1) + GEAR_TABLE[data[length - 1]];
-        return hash;
+// 将 length 个字节依次滚入 hash；hash 由调用者持有，便于跨调用累加
+auto updateGearHash(const std::uint8_t *data, std::size_t length, std::uint64_t &hash) -> std::uint64_t {
+    for (std::size_t i = 0; i < length; ++i) {
+        hash = gearRoll(hash, data[i]);
     }
-};
+    return hash;
+}
 

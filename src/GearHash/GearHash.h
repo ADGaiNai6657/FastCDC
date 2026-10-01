@@ -2,9 +2,8 @@
 // Created by user on 2026/9/30.
 //
 #pragma once
-// #include <string_view>
+#include <cstddef>
 #include <cstdint>
-#include<string>
 
 #ifndef FASTCDC_GEARHASH_H
 #define FASTCDC_GEARHASH_H
@@ -76,7 +75,12 @@ static constexpr std::uint64_t GEAR_TABLE[256] = {
     0x31F80F9F2899DFF1ULL, 0xFA28613B8A9FE9FEULL, 0x419E2EA56720EE1BULL, 0xEA4E6268AE8AFF5CULL
 };
 
-//传入数据指针，视窗长度等，进行GearHash的计算并返回;其中，data指针
-auto getHashValue(const std::uint8_t *data, size_t length, uint64_t &hash, bool &init) -> uint64_t;
+// 单字节滚动：hash = (hash << 1) + GEAR_TABLE[byte]
+inline auto gearRoll(std::uint64_t hash, std::uint8_t byte) -> std::uint64_t {
+    return (hash << 1) + GEAR_TABLE[byte];
+}
+
+// 将 length 个字节依次滚入 hash，并返回更新后的值
+auto updateGearHash(const std::uint8_t *data, std::size_t length, std::uint64_t &hash) -> std::uint64_t;
 
 #endif //FASTCDC_GEARHASH_H
