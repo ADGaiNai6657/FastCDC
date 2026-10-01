@@ -77,6 +77,6 @@ static constexpr std::uint64_t GEAR_TABLE[256] = {
 };
 
 //传入数据指针，视窗长度等，进行GearHash的计算并返回;其中，data指针
-auto getHashValue(const std::uint8_t *data, size_t length, uint64_t &hash, bool init) -> uint64_t;
+auto getHashValue(const std::uint8_t *data, size_t length, uint64_t &hash, bool &init) -> uint64_t;
 
 #endif //FASTCDC_GEARHASH_H
