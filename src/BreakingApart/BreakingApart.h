@@ -16,7 +16,7 @@
 // 掩码位数：base = log2(ExpectedSize)；NC level L 前段用 base+L 位、后段用 base-L 位。
 struct BreakingApartConfig {
     std::size_t MinSize;      // 最小块长（切点跳过区间）。
-    std::size_t NormalSize;   // 归一化中心（通常 == ExpectedSize）。
+    std::size_t NormalSize;   // 归一化切换点（NC 时 = max(ExpectedSize, MinSize + ExpectedSize/2)）。
     std::size_t MaxSize;      // 最大块长（强制切分）。
     std::uint64_t MaskA;      // 非 NC 掩码（13 位，对应 Algorithm 1 的 MaskA）。
     std::uint64_t MaskS;      // NC 在 NormalSize 之前使用的较难命中掩码。

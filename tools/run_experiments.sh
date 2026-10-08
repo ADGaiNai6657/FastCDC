@@ -4,7 +4,9 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# Windows 下产物带 .exe 后缀，自动回退；Unix 保持无后缀。
 BIN=./cmake-build-release/FastCDC
+[ -x "$BIN" ] || BIN="$BIN.exe"
 OUT=results
 mkdir -p "$OUT"
 

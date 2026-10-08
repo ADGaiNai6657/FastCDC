@@ -27,10 +27,12 @@ auto gearCuts(std::string_view data,
               std::size_t expectedSize,
               std::vector<std::size_t>& cuts) -> void;
 
-// Rabin-based CDC：48 字节滑动窗口，fp mod 0x2000 == 0x78。
+// Rabin-based CDC：48 字节滑动窗口，fp mod D == r，其中 D = expectedSize
+// （论文 §2 Eq.1：D 即平均块长；§4.2 的 D=0x2000 对应 8KB 期望块长）。
 auto rabinCuts(std::string_view data,
                std::size_t minSize,
                std::size_t maxSize,
+               std::size_t expectedSize,
                std::vector<std::size_t>& cuts) -> void;
 
 #endif //FASTCDC_BASELINES_H

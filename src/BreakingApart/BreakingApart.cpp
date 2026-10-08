@@ -65,7 +65,17 @@ auto makeFastCDCConfig(const std::size_t expectedSize,
     const std::uint64_t maskA = buildMask(base);
     const std::uint64_t maskS = (level > 0) ? buildMask(base + level) : maskA;
     const std::uint64_t maskL = (level > 0) ? buildMask(std::max(1, base - level)) : maskA;
-    return {minSize, expectedSize, expectedSize * 8, maskA, maskS, maskL, level};
+    // NC 切换点 NormalSize。论文 §5.4 将 NC 的归一化块长取为「4KB + 最小块长」，
+    // 而 Algorithm 1 的 8KB 示例（Min2KB）对应 minSize + expected/2 = 6KB。
+    // 取 max 同时满足两者，并保证 NormalSize > MinSize（否则第一段循环从
+    // last+MinSize 起，chunkOffset 恒 >= NormalSize，MaskS 永不参与、NC 退化）：
+    //   min=expected/4 -> 6KB < 8KB，取 8KB（与 Algorithm 1 一致）；
+    //   Min4KB -> 8KB、Min8KB -> 12KB（与 §5.4 一致）。
+    // NC 关闭时仍取 expectedSize，不影响非 NC 路径。
+    const std::size_t normalSize = (level > 0)
+                                       ? std::max(expectedSize, minSize + expectedSize / 2)
+                                       : expectedSize;
+    return {minSize, normalSize, expectedSize * 8, maskA, maskS, maskL, level};
 }
 
 auto BoundariesFinder(std::string_view data,

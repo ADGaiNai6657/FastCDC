@@ -73,9 +73,11 @@ auto findCuts(std::string_view data,
             break;
         case Algo::Rabin:
             // Rabin 按论文用 1/4 与 8x 期望块长；Min=0 时用 expected/4。
+            // 除数 D 随期望块长缩放（论文 §5.1），故一并传入 expectedSize。
             rabinCuts(data,
                       opts.minSizeSet ? opts.minSize : opts.expectedSize / 4,
                       opts.expectedSize * 8,
+                      opts.expectedSize,
                       cuts);
             break;
         case Algo::FSC:

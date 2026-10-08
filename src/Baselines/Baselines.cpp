@@ -64,15 +64,21 @@ auto gearCuts(std::string_view data,
 auto rabinCuts(std::string_view data,
                const std::size_t minSize,
                const std::size_t maxSize,
+               const std::size_t expectedSize,
                std::vector<std::size_t>& cuts) -> void {
+    if (expectedSize < 2) {
+        return; // 防御：过小的除数无意义（掩码为 0 会恒命中）。
+    }
     const std::size_t n = data.size();
     if (n == 0) {
         return;
     }
     constexpr std::size_t kWindow = 48;          // LBFS 滑动窗口字节数。
     constexpr std::uint64_t kPoly = 0x3DA3358B4DC173ULL; // 固定的奇多项式常数。
-    constexpr std::uint64_t kDivisorMask = 0x1FFFu;      // D = 0x2000 -> 低 13 位。
-    constexpr std::uint64_t kThreshold = 0x78u;          // r = 0x78。
+    // 论文 §5.1：Rabin 的 max/min 随期望块长缩放，故除数 D 亦然（§2 Eq.1：D 即平均块长）。
+    const std::uint64_t kDivisorMask = expectedSize - 1; // D = expectedSize。
+    // r = 0x78（LBFS 口径），需严格小于 D；D 过小时退化为 0 以避免永不命中。
+    const std::uint64_t kThreshold = std::min<std::uint64_t>(0x78u, expectedSize - 1);
 
     // p^window mod 2^64，用于滚动时移除最旧字节。
     std::uint64_t pPow = 1;
