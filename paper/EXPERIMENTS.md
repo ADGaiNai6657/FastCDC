@@ -1,5 +1,9 @@
 # FastCDC 论文实验复现进度
 
+> 状态更新：本文档记录历史进度。**P0（指标/构建）+ P1（参数化）+ P2（基线）已完成**，
+> 实验矩阵与结论见 [`REPRODUCTION.md`](REPRODUCTION.md)，原始数据见 `results/*.csv`。
+> 下列第 4/5 节的未勾选项已成为历史记录。
+
 对照 `paper/atc16-paper-xia.pdf`（USENIX ATC'16，Xia 等）与当前代码，
 记录已完成 / 待完成的工作，并给出 todo list。
 

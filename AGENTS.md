@@ -1,51 +1,67 @@
 # AGENTS.md
 
-FastCDC：基于 `paper/atc16-paper-xia.pdf` 的 C++20 内容定义分块（CDC）实现。
-单一 CMake CLI 目标；无测试、lint、CI。
+FastCDC：基于 `paper/atc16-paper-xia.pdf` 的 C++20 内容定义分块（CDC）实现，
+含论文第 5 章实验的复现能力（基线算法、参数化、NC 等级）。单一 CMake CLI 目标；
+依赖 OpenSSL（SHA-1 去重指纹）；无测试、lint、CI。
 
 ## 构建与运行
 
-- 需要 CMake >= 4.1（`cmake_minimum_required(VERSION 4.1)`）。
-- 构建：`cmake -B cmake-build-debug && cmake --build cmake-build-debug`
-- 运行：`./cmake-build-debug/FastCDC [<file|dir>] [--nc] [--recursive]`
-  （无路径参数时默认 `Dataset/` 且递归；`--nc` 启用归一化分块）
-- 不用 CMake 的快速编译（头文件经 `src/` 解析）：
-  `g++ -std=c++20 -Isrc src/main.cpp src/GearHash/GearHash.cpp src/BreakingApart/BreakingApart.cpp src/ChunkStore/ChunkStore.cpp -o fastcdc`
+- 需要 CMake >= 4.1（`cmake_minimum_required(VERSION 4.1)`）与 OpenSSL（keg-only 由 CMake 自动探测）。
+- 构建：`cmake -B cmake-build-release -DCMAKE_BUILD_TYPE=Release && cmake --build cmake-build-release`
+  （默认 Release `-O3`，复现速度实验必须用 Release）。
+- 运行：`./cmake-build-release/FastCDC [<file|dir>] [options]`
+  - `--algo fastcdc|gear|rabin|fsc`（默认 fastcdc）
+  - `--expected-size N`（默认 8192）、`--min-size N`（默认 expected/4；0 表示不跳过）
+  - `--nc`（= level 2）、`--nc-level 1|2|3`、`--no-nc`
+  - `--fsc-size N`（默认 10240）、`--runs N`、`--csv PATH`、`--recursive|-r`、`--quiet`
+  - 无路径参数时默认 `Dataset/` 且递归。
+- 一键复现实验：`tools/run_experiments.sh`（结果写入 `results/*.csv`）。
 
 ## 验证
 
-没有测试套件。验证方式：构建后对数据集运行并检查块长与去重统计：
-`./cmake-build-debug/FastCDC Dataset/DataSet_2 --recursive --nc`
-默认参数（target 8096，min 4048，max 64768）下，非 NC 平均约 12k、
-NC 平均约 9.6k，最大块长不超过 MaxSize；输出含 `dedupRatio`（DER =
-totalBytes/uniqueBytes）。`Dataset/DataSet_1` 是 gzip 压缩包，字节级重复少、DER≈1，
-去重实验应使用未压缩的 `DataSet_2`。
+复现报告见 `paper/REPRODUCTION.md`，原始数据见 `results/*.csv`。
+快速自检：
+
+```bash
+./cmake-build-release/FastCDC Dataset/DataSet_2 --recursive --no-nc        # FC-Min2K
+./cmake-build-release/FastCDC Dataset/DataSet_2 --recursive --nc           # FC-NC-Min2K
+./cmake-build-release/FastCDC Dataset/DataSet_3 --algo rabin               # RC 基线
+```
+
+要点：非 NC 平均块长 ≈ `MinSize + 期望块长`；NC 会向 `NormalSize` 收窄；
+`dedupRatio` 为论文定义（重复字节/总字节 = `1 - uniqueBytes/totalBytes`），
+`DER = totalBytes/uniqueBytes`。数据集见下节。
+
+## 数据集
+
+- `Dataset/DataSet_1` —— 5 个 emacs tar.gz（压缩，去重失真，仅作原始素材）。
+- `Dataset/DataSet_2` —— 5 个 emacs 源码版本（LNX 类，递归）。
+- `Dataset/DataSet_3` —— 由 DataSet_1 解压得到的未压缩 tar（TAR 类）。
+- `Dataset/DataSet_4` —— `tools/make_synthetic_backups.py` 生成的合成备份流（SYN 类）。
+- `Dataset/` 全部未跟踪（约 1.5GB）。WEB/VMA/VMB/RDB 缺失。
 
 ## 代码布局
 
-- `src/GearHash/` —— `GEAR_TABLE[256]`、头文件内联的 `gearRoll()` 与
-  `updateGearHash()`；滚动哈希为 `hash = (hash << 1) + GEAR_TABLE[byte]`。
-- `src/BreakingApart/` —— `BoundariesFinder()` 向 `vector<vector<size_t>>`
-  填入切点偏移（绝对字节位置；最后一项 == 文件大小）。
-- `src/ChunkStore/` —— 全局去重存储：`gChunkPool`（`deque<Chunk>`，唯一块各存一份）
-  与 `gChunkIndex`（`multimap`，指纹→`Chunk*`）；`emitChunk()` 切片发射，
-  `chunkStore()` 去重。内容指纹复用 `updateGearHash`（64 位，非密码学）。
-- `src/main.cpp` —— 数据集驱动：遍历文件、分块、`emitChunk` 去重，汇总
-  `dedupRatio`/`avgChunk`/`minChunk`/`maxChunk`/吞吐量。
+- `src/GearHash/` —— `GEAR_TABLE[256]`、`gearRoll()`；**仅用于分块边界**。
+- `src/Hash/` —— 基于 OpenSSL EVP 的 SHA-1（`sha1`、`Sha1DigestHash`）；**仅用于去重指纹**。
+- `src/BreakingApart/` —— `BoundariesFinder(data, positions, cfg)` 与
+  `makeFastCDCConfig(expected, min, ncLevel)`；掩码由期望块长与 NC 等级生成。
+- `src/Baselines/` —— `fixedSizeCuts`(FSC/XC)、`gearCuts`(原始 Gear)、`rabinCuts`(48B 窗口)。
+- `src/ChunkStore/` —— 全局去重存储：`gChunkPool`（唯一块）+ `gChunkIndex`（SHA-1→Chunk*）；
+  `resetStore()` 供多轮实验重置。
+- `src/main.cpp` —— 数据集驱动：分块、发射、汇总 `dedupRatio`/`DER`/`avgChunk` 与
+  「纯分块 / 全流程」两档吞吐量。
 
 ## 注意事项
 
-- `BoundariesFinder` 忽略配置参数，使用 `BreakingApart.cpp` 中的文件级
-  `breakingApartConfig`；调整分块参数需改这里。
-- 掩码：NC 在 `NormalSize` 前用 `MaskS`、之后用 `MaskL`；非 NC 用 `MaskM`；
-  `MaxSize` 强制切分。改动这些会直接改变平均块长。
-- 去重正确性依赖「指纹分桶 + `chunkStore` 逐字节确认」，指纹碰撞不会导致误判；
-  但每个唯一块会在内存中保留一份内容副本（`gChunkPool`），大数据集注意内存。
-- 项目头文件按 `"GearHash/GearHash.h"` / `"BreakingApart/BreakingApart.h"` /
-  `"ChunkStore/ChunkStore.h"` 引用。无第三方依赖（去重指纹即 GearHash）。
+- 分块参数不再硬编码，`BoundariesFinder` 接收 `BreakingApartConfig`。
+- NC 掩码：8KB 的 11/13/15 位用论文公开常量；其他位宽（含 level 1/3）按同样的零填充
+  分布生成，属复现假设（见 `paper/REPRODUCTION.md` §9）。
+- 去重正确性依赖「SHA-1 分桶 + 逐字节确认」，指纹碰撞不会误判；每个唯一块在内存保留一份内容。
+- 去重指纹（SHA-1）与分块哈希（Gear）是两个独立子系统，勿混用。
 
 ## 仓库约定
 
-- `Dataset/`（约 800MB emacs 语料）未跟踪 —— 切勿提交。
 - 提交信息与代码注释使用中文。
 - 函数使用尾置返回类型（`auto f(...) -> T`）。
+- `results/`、`Dataset/` 未跟踪，勿提交。

@@ -3,6 +3,12 @@ cmake-build-*/
 build/
 out/
 
+# Experiment outputs
+results/
+
+# Datasets (约 800MB+，未跟踪)
+Dataset/
+
 # CLion / IDE
 .idea/
 

@@ -1,70 +1,104 @@
 //
-// Created by ADGaiNai6657 on 2026/9/30.
+// BreakingApart.cpp
+// FastCDC 边界查找，实现论文 Algorithm 1 的三项技术：
+//   - 优化哈希判定 (fp & Mask) == 0（零填充掩码放大滑动窗口）
+//   - 次最小块切点跳过（从 last + MinSize 起滚动）
+//   - 归一化分块 NC（NormalSize 前后切换 MaskS / MaskL）
 //
 
 #include "BreakingApart.h"
 #include "GearHash/GearHash.h"
 
 #include <algorithm>
+#include <bit>
 
-constexpr std::size_t TARGET_CHUNK_SIZE  = 8096;
-constexpr std::size_t MINIMUM_CHUNK_SIZE = TARGET_CHUNK_SIZE / 2;
-constexpr std::size_t MAXIMUM_CHUNK_SIZE = TARGET_CHUNK_SIZE * 8;
-constexpr std::uint64_t MASK_S = 0x0003590703530000ULL; // 15 of ones; Harder to hit, should be put in the big para. WITH NC
-constexpr std::uint64_t MASK_M = 0x0000d90303530000ULL; // 13 of ones; Middium, put in middle. WITHOUT NC
-constexpr std::uint64_t MASK_L = 0x0000d90003530000ULL; // 11 of ones; Easier to hit, put in small para. WITH NC
-
-// initialize the para. list.
 namespace {
-    BreakingApartConfig breakingApartConfig{
-        MINIMUM_CHUNK_SIZE, TARGET_CHUNK_SIZE, MAXIMUM_CHUNK_SIZE, MASK_S, MASK_M, MASK_L
-    };
 
-    // 依据当前块内偏移选取掩码：未启用 NC 统一用 MaskM；
-    // 启用 NC 时，NormalSize 之前用较难命中的 MaskS，之后用较易命中的 MaskL。
-    auto maskFor(std::size_t chunkOffset, bool isNC) -> std::uint64_t {
-        if (!isNC) {
-            return breakingApartConfig.MaskM;
+    // 论文 Algorithm 1 公开的三个掩码常量（8KB 期望块长）。
+    constexpr std::uint64_t MASK_A_13 = 0x0000d90303530000ULL; // 13 个 1
+    constexpr std::uint64_t MASK_S_15 = 0x0003590703530000ULL; // 15 个 1
+    constexpr std::uint64_t MASK_L_11 = 0x0000d90003530000ULL; // 11 个 1
+
+    // 生成具有 bits 个 1 的掩码：在 [16, 49] 上等距分布，低位留零以保证
+    // 至少 16 字节的滑动窗口。11/13/15 直接使用论文公开常量。
+    auto buildMask(const int bits) -> std::uint64_t {
+        if (bits <= 0) {
+            return 0;
         }
-        return (chunkOffset < breakingApartConfig.NormalSize) ? breakingApartConfig.MaskS
-                                                              : breakingApartConfig.MaskL;
+        switch (bits) {
+            case 11: return MASK_L_11;
+            case 13: return MASK_A_13;
+            case 15: return MASK_S_15;
+            default: break;
+        }
+        constexpr int kLo = 16;
+        constexpr int kHi = 49;
+        std::uint64_t mask = 0;
+        for (int i = 0; i < bits; ++i) {
+            const int pos = (bits == 1)
+                                ? kLo
+                                : static_cast<int>(kLo + (kHi - kLo) * static_cast<long long>(i) / (bits - 1));
+            mask |= (1ULL << pos);
+        }
+        return mask;
     }
+
+    // 前段（< NormalSize）与后段（>= NormalSize）使用的掩码。
+    auto maskFor(const BreakingApartConfig& cfg, const std::size_t chunkOffset, const bool isNC) -> std::uint64_t {
+        if (!isNC) {
+            return cfg.MaskA;
+        }
+        return (chunkOffset < cfg.NormalSize) ? cfg.MaskS : cfg.MaskL;
+    }
+
+} // namespace
+
+auto makeFastCDCConfig(const std::size_t expectedSize,
+                       const std::size_t minSize,
+                       const int ncLevel) -> BreakingApartConfig {
+    // base = 期望块长的二进制位宽，如 8192 -> 13。
+    int base = 0;
+    for (std::size_t v = expectedSize; v > 1; v >>= 1) {
+        ++base;
+    }
+    const int level = std::clamp(ncLevel, 0, 3);
+    const std::uint64_t maskA = buildMask(base);
+    const std::uint64_t maskS = (level > 0) ? buildMask(base + level) : maskA;
+    const std::uint64_t maskL = (level > 0) ? buildMask(std::max(1, base - level)) : maskA;
+    return {minSize, expectedSize, expectedSize * 8, maskA, maskS, maskL, level};
 }
 
 auto BoundariesFinder(std::string_view data,
-                      std::vector<std::vector<size_t>> &vPosition,
-                      bool is_NC)
--> void {
-
-    // 将此二维向量向后添加一个空向量准备加入 cut-point 的下标信息
+                      std::vector<std::vector<std::size_t>>& vPosition,
+                      const BreakingApartConfig& config) -> void {
     vPosition.emplace_back();
-    auto &cuts = vPosition.back();
+    auto& cuts = vPosition.back();
 
     const std::size_t n = data.size();
     if (n == 0) {
         return;
     }
 
-    const auto *bytes = reinterpret_cast<const std::uint8_t *>(data.data());
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(data.data());
+    const bool isNC = config.NcLevel > 0;
 
-    std::size_t last = 0; // 当前块的起始下标（上一次的 cut-point）
+    std::size_t last = 0; // 当前块起始下标（上一次切点）。
     while (last < n) {
-        // 剩余数据不足 MinSize，直接作为最后一块切到末尾
-        if (n - last <= breakingApartConfig.MinSize) {
+        // 剩余数据不足 MinSize，直接作为最后一块切到末尾。
+        if (n - last <= config.MinSize) {
             cuts.push_back(n);
             break;
         }
 
-        // 查找窗口不能超过 MaxSize，也不能越过数据末尾
-        const std::size_t searchEnd = std::min(last + breakingApartConfig.MaxSize, n);
+        const std::size_t searchEnd = std::min(last + config.MaxSize, n);
 
         std::uint64_t hash = 0;
-        std::size_t cut = searchEnd; // 始终未命中掩码则在 MaxSize 处强制切分
+        std::size_t cut = searchEnd; // 始终未命中掩码则在 MaxSize 处强制切分。
 
-        // 跳过 MinSize 区间；此后每滚入一字节判断一次掩码
-        for (std::size_t i = last + breakingApartConfig.MinSize; i < searchEnd; ++i) {
+        // 跳过 MinSize 区间；此后每滚入一字节判断一次掩码。
+        for (std::size_t i = last + config.MinSize; i < searchEnd; ++i) {
             hash = gearRoll(hash, bytes[i]);
-            if ((hash & maskFor(i - last, is_NC)) == 0) {
+            if ((hash & maskFor(config, i - last, isNC)) == 0) {
                 cut = i;
                 break;
             }

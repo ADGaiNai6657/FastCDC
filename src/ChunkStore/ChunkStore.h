@@ -7,8 +7,8 @@
 //         -> 写入 gChunkPool/gChunkIndex。
 // gChunkPool/gChunkIndex 跨文件保留，是全局去重（一个 chunk 只存一次）的基础。
 //
-// 内容指纹复用现有的 GearHash：对整块字节滚动 hash=(hash<<1)+GEAR_TABLE[b]。
-// 它是非密码学 64 位指纹，故索引用 multimap 并按内容逐字节确认，保证去重正确。
+// 内容指纹使用 SHA-1（复用 Bimodal 的 OpenSSL EVP 封装），与 FastCDC 论文口径一致。
+// 160 位摘要碰撞概率可忽略，索引仍为 multimap 并保留逐字节确认作为兜底。
 
 #ifndef FASTCDC_CHUNKSTORE_H
 #define FASTCDC_CHUNKSTORE_H
@@ -21,8 +21,10 @@
 #include <unordered_map>
 #include <vector>
 
-// 内容哈希：整块 GearHash 的 64 位指纹。
-using ChunkHash = std::uint64_t;
+#include "Hash/Hash.h"
+
+// 内容哈希：整块内容的 SHA-1 160 位摘要。
+using ChunkHash = Sha1Digest;
 
 // 唯一块：独占一份内容，代表全局去重后真正需要存储的数据。
 struct Chunk {
@@ -40,7 +42,7 @@ struct ChunkRef {
 // 唯一块池：deque 保证 push_back 后既有的 Chunk* 不失效。
 inline std::deque<Chunk> gChunkPool;
 // 内容索引：一个指纹可对应多个 Chunk*（碰撞候选），命中后再逐字节确认。
-inline std::unordered_multimap<ChunkHash, Chunk*> gChunkIndex;
+inline std::unordered_multimap<ChunkHash, Chunk*, Sha1DigestHash> gChunkIndex;
 inline std::size_t gTotalChunks = 0;  // 发射的块总数（含重复）。
 inline std::size_t gDupChunks = 0;    // 命中去重的块数。
 inline std::size_t gTotalBytes = 0;   // 发射的总字节数（等于输入字节数）。
@@ -50,6 +52,9 @@ inline std::vector<std::vector<ChunkRef>> vChunks;
 
 // 开始一条新的输入流（文件）：为其准备一组出现记录。
 auto beginStream() -> void;
+
+// 清空去重存储与全部统计量，用于多轮实验之间重置。
+auto resetStore() -> void;
 
 // 内容去重入口：命中则返回既有唯一块，未命中则新建；由 emitChunk 调用。
 // 恒等式：调用 N 次后 gTotalChunks == gChunkPool.size() + gDupChunks。

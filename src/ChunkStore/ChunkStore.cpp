@@ -8,15 +8,11 @@
 
 #include "ChunkStore/ChunkStore.h"
 
-#include "GearHash/GearHash.h"
-
 namespace {
 
-    // 复用现有 GearHash 对整块内容求 64 位指纹：hash=(hash<<1)+GEAR_TABLE[byte]。
+    // 对整块内容求 SHA-1 160 位指纹，作为去重索引 key（与论文一致）。
     auto contentHash(std::string_view content) -> ChunkHash {
-        ChunkHash hash = 0;
-        updateGearHash(reinterpret_cast<const std::uint8_t*>(content.data()), content.size(), hash);
-        return hash;
+        return sha1(content);
     }
 
 } // namespace
@@ -24,6 +20,17 @@ namespace {
 // 开始一条新流，为出现记录准备一组空向量。
 auto beginStream() -> void {
     vChunks.emplace_back();
+}
+
+// 清空去重存储与全部统计量，供多轮实验重置。
+auto resetStore() -> void {
+    gChunkPool.clear();
+    gChunkIndex.clear();
+    gTotalChunks = 0;
+    gDupChunks = 0;
+    gTotalBytes = 0;
+    gUniqueBytes = 0;
+    vChunks.clear();
 }
 
 // 内容去重的唯一入口：对块做「查重 -> 记录 -> 返回唯一块指针」。
