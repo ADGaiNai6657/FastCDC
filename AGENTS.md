@@ -40,6 +40,39 @@ FastCDC：基于 `paper/atc16-paper-xia.pdf` 的 C++20 内容定义分块（CDC�
 - `Dataset/DataSet_4` —— `tools/make_synthetic_backups.py` 生成的合成备份流（SYN 类）。
 - `Dataset/` 全部未跟踪（约 1.5GB）。WEB/VMA/VMB/RDB 缺失。
 
+### 数据集生成（DataSet_3 / DataSet_4）
+
+> 前置条件：`Dataset/DataSet_1`（5 个 `emacs-*.tar.gz`）已就位。全部命令在仓库根执行；
+> 结果确定、可复现，同名文件会被覆盖。生成顺序：先 DataSet_3，再 DataSet_4（后者以前者为基）。
+
+- **DataSet_3（TAR 类）**：把 DataSet_1 的 gzip 流解压为未压缩 tar（去掉 `.gz` 后缀），
+  无需额外脚本：
+
+  ```bash
+  mkdir -p Dataset/DataSet_3
+  for f in Dataset/DataSet_1/*.tar.gz; do
+      gunzip -c "$f" > "Dataset/DataSet_3/$(basename "${f%.gz}")"
+  done
+  ```
+
+  产物：`Dataset/DataSet_3/emacs-{21.4a,22.1,22.2,22.3,23.1}.tar`（共约 650MB）。
+  校验：各文件大小应等于 `gzip -l Dataset/DataSet_1/*.tar.gz` 输出的 uncompressed 列。
+
+- **DataSet_4（SYN 类）**：`tools/make_synthetic_backups.py` 生成「集中且反复变更」的合成备份。
+  默认参数即复现当前数据集：
+
+  ```bash
+  python3 tools/make_synthetic_backups.py \
+      --base Dataset/DataSet_3/emacs-22.1.tar \
+      --out  Dataset/DataSet_4 \
+      --size 33554432 --backups 8 --rois 64 \
+      --roi-size 8192 --edit-inner 4096 --seed 20260917
+  ```
+
+  产物：`Dataset/DataSet_4/backup_00.bin … backup_07.bin`（每个 32MiB，共 256MiB）。
+  每个备份仅在 64 个等距 ROI 内部替换 4KiB，ROI 两翼各 2KiB 保持不变，
+  用于验证论文 2.3 的 P1/P2 前提。仅依赖 Python 标准库；固定 `--seed` 保证逐字节可复现。
+
 ## 代码布局
 
 - `src/GearHash/` —— `GEAR_TABLE[256]`、`gearRoll()`；**仅用于分块边界**。

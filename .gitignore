@@ -6,8 +6,11 @@ out/
 # Experiment outputs
 results/
 
-# Datasets (约 800MB+，未跟踪)
+# Datasets (约 1.5GB，未跟踪)
 Dataset/
+
+# 设计文档：纳入版本控制（显式保留，勿忽略）
+!docs/
 
 # CLion / IDE
 .idea/
